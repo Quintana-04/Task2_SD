@@ -1,57 +1,76 @@
+import threading
 import pika
 import json
 import boto3
-import os
+import time
 
-def invoke_delivery_lambda(message):
-    """
-    Invokes the Lambda function that simulates order delivery asynchronously.
-    The Lambda function is expected to simulate a delay and process the order.
-    """
-    # Specify the region (e.g., us-east-1)
+log_file = "logs_lambda.txt"
+lambdas_invocadas = 0
+lock = threading.Lock()
+
+def invoke_lambda_worker(message):
     lambda_client = boto3.client('lambda', region_name='us-east-1')
     payload = json.dumps({'frase': message.get('frase')})
     try:
-        response = lambda_client.invoke(
+        lambda_client.invoke(
             FunctionName="lambda_delivery",
-            InvocationType='Event',  # Asynchronous invocation
+            InvocationType='Event',  # Asíncrono
             Payload=payload
         )
         print("Delivery Lambda invoked for phrase:", message.get('frase'))
+        global lambdas_invocadas
+        with lock:
+            lambdas_invocadas += 1
     except Exception as e:
         print("Error invoking delivery Lambda for phrase:", message.get('frase'), e)
 
 def callback(ch, method, properties, body):
     try:
-        # Convert the JSON message to a dictionary
         message = json.loads(body)
         print("Message received:", message)
-        # Invoke the delivery Lambda function asynchronously
-        invoke_delivery_lambda(message)
-        # Acknowledge the message reception to remove it from the queue
+        invoke_lambda_worker(message)
         ch.basic_ack(delivery_tag=method.delivery_tag)
     except Exception as e:
         print("Error processing the message:", e)
-        # Requeue the message for retry if processing fails
         ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
 
-def start_subscriber():
-    # Configure the connection to RabbitMQ (modify host and credentials as needed)
+def connect_to_rabbit():
     credentials = pika.PlainCredentials('user', 'password123')
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='<EC2_PUBLIC_IP>', credentials=credentials)
+        pika.ConnectionParameters(host='<EC2_PUBLIC_IP>', credentials=credentials)  # Cambiar IP
     )
     channel = connection.channel()
-
-    # Declare the queue (ensure the parameters match the existing queue)
     channel.queue_declare(queue='order_queue', durable=False)
+    return connection, channel
 
-    # Set up the subscriber with the callback to process each message
+def monitor(channel, interval=30):
+    while True:
+        with lock:
+            invocadas = lambdas_invocadas
+        
+        queue_name = 'order_queue'
+        q = channel.queue_declare(queue=queue_name, durable=False, passive=True)
+        cola_size = q.method.message_count
+                
+        log_line = (f"[Monitor] Lambdas invocadas: {invocadas} | "
+                    f"Tamaño cola RabbitMQ: {cola_size}")
+        
+        print(log_line)
+        with open(log_file, "a") as f:
+            f.write(log_line + "\n")
+        
+        time.sleep(interval)
+
+def start_subscriber():
+    connection, channel = connect_to_rabbit()
+    
+    monitor_thread = threading.Thread(target=monitor, args=(channel,), daemon=True)
+    monitor_thread.start()
+    
     channel.basic_consume(queue='order_queue', on_message_callback=callback)
+    
     print("Subscriber active. Waiting for messages on the 'order_queue'...")
-
     try:
-        # Start the message consumption loop
         channel.start_consuming()
     except KeyboardInterrupt:
         print("Manual interruption. Closing subscriber...")

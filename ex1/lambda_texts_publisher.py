@@ -6,6 +6,9 @@ import pika
 from urllib.parse import unquote
 from botocore.exceptions import ClientError
 
+"""En este código, cuando se sube un archivo .csv en el bucket S3, de detecta automaticamente (es el desencadenante),
+    extrae las diferentes frases y las manda una a una por la queue de RabbitMQ"""
+
 def lambda_handler(event, context):
     try:
         # Extract bucket and key from the S3 event and decode the key

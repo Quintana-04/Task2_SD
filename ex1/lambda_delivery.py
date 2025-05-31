@@ -4,7 +4,7 @@ import random
 
 insults = ["tonto", "bobo", "puta", "idiota", "cabron"]
 
-def lambda_handler(event, confrase):
+def lambda_handler(event, context): # filter_text
     frase = event.get('frase')
     print (f"Received phrase: {frase}")
 
