@@ -37,7 +37,7 @@ def callback(ch, method, properties, body):
 def connect_to_rabbit():
     credentials = pika.PlainCredentials('user', 'password123')
     connection = pika.BlockingConnection(
-        pika.ConnectionParameters(host='<EC2_PUBLIC_IP>', credentials=credentials)  # Cambiar IP
+        pika.ConnectionParameters(host='98.81.175.210', credentials=credentials)  # Cambiar IP
     )
     channel = connection.channel()
     channel.queue_declare(queue='order_queue', durable=False)
@@ -58,6 +58,7 @@ def monitor(channel, interval=30):
         print(log_line)
         with open(log_file, "a") as f:
             f.write(log_line + "\n")
+            f.flush()  # Asegura que se escribe inmediatamente
         
         time.sleep(interval)
 
